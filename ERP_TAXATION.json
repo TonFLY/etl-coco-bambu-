@@ -1,0 +1,25 @@
+{
+    "curUTC": "2024-05-05T06:06:06",
+    "locRef": "99 CB CB",
+    "guestChecks": [
+        {
+            "guestCheckId": 1122334455,
+            "chkNum": 1234,
+            "opnBusDt": "2024-01-01",
+            "clsdBusDt": "2024-01-01",
+            "subTtl": 109.9,
+            "chkTtl": 109.9,
+            "empNum": 55555,
+            "numSrvcRd": 3,
+            "numChkPrntd": 2,
+            "taxation": [
+                {
+                    "taxNum": 28,
+                    "txblSlsTtl": 119.9,
+                    "taxCollTtl": 20.81,
+                    "taxRate": 21
+                }
+            ]
+        }
+    ]
+}
