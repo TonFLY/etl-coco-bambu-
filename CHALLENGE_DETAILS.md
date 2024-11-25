@@ -122,7 +122,7 @@ O JSON foi transcrito para as seguintes tabelas SQL:
 | mod_flag     | BOOLEAN   |           |
 | incl_tax     | NUMERIC   |           |
 | prc_lvl      | INTEGER   |           |
-```
+
 ---
 
 ## 3. Descreva a abordagem escolhida em detalhes
