@@ -16,6 +16,7 @@
 }
 ```
 **Exemplo de Resposta:**
+
 ```json
 {
   "storeId": "store123",
@@ -31,7 +32,7 @@
 **Descrição:** Retorna os dados de Guest Checks de uma loja em uma data específica.
 
 **Exemplo de Payload:**
-````json
+```json
 {
   "busDt": "2024-01-01",
   "storeId": "store123"
