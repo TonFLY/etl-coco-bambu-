@@ -1,6 +1,6 @@
 # Desafio de Engenharia de Dados - Coco Bambu
 
-Este repositório contém a solução completa para o Desafio de Engenharia de Dados, que inclui a ingestão, processamento e armazenamento de dados JSON em um Data Lake utilizando AWS S3, além de integração com APIs simuladas via AWS API Gateway e Lambda para fornecer dados de restaurantes.
+Este repositório contém a solução completa para o Desafio de Engenharia de Dados, que inclui a ingestão, processamento e armazenamento de dados JSON em um Data Lake utilizando AWS S3, integração com APIs simuladas via AWS API Gateway e Lambda, além de um robusto processo de ETL validado e escalável.
 
 ---
 
@@ -11,7 +11,7 @@ desafio-coco-bambu/
 │
 ├── scripts/
 │   ├── create_folders_s3.py          # Script para criar a estrutura inicial no S3
-│   ├── create_tables.sql             # Script SQL para criar as tabelas no banco de dados
+│   ├── create_tables.py              # Script para criar tabelas e índices no RDS
 │   ├── etl_process.py                # Script principal para processar os dados do S3
 │   ├── api_fetch.py                  # Script para consumir APIs e salvar os dados no S3
 │
@@ -26,7 +26,11 @@ desafio-coco-bambu/
 ├── README.md                         # Documentação do projeto
 ├── CHALLENGE_DETAILS.md              # Detalhes e respostas ao desafio
 ├── KANBAN.md                         # Controle de tarefas e progresso do projeto
+├── API_DOCUMENTATION.md              # Documentação detalhada dos endpoints simulados
 ```
+
+---
+
 ## 1. Configuração do Ambiente
 
 ### Pré-requisitos
@@ -37,15 +41,15 @@ desafio-coco-bambu/
   - Criar buckets e objetos no **AWS S3**
   - Criar recursos no **AWS API Gateway**
   - Acessar um banco de dados **PostgreSQL** no **AWS RDS**
-- Instale as dependências do projeto:
+
+### Instale as dependências do projeto:
 
 ```bash
 pip install -r requirements.txt
 ```
-
 ### Arquivo `.env`
 
-Preencha o arquivo `.env` com as variáveis necessárias:
+Preencha o arquivo `.env` com as variáveis necessárias para configurar o ambiente:
 
 ```plaintext
 BUCKET_NAME=coco-bambu-data-lake2
@@ -56,6 +60,9 @@ DB_USER=postgre
 DB_PASSWORD=YourSecurePassword
 DB_PORT=5432
 ```
+Certifique-se de substituir `<api-gateway-id>` pelo ID do API Gateway e `YourSecurePassword` pela senha correta do banco.
+
+---
 
 ## 2. Estrutura do Data Lake
 
@@ -73,7 +80,7 @@ raw/
 processed/
 logs/
 ```
-A estrutura foi projetada para facilitar a organização e o acesso aos dados brutos, processados e logs.
+A estrutura foi projetada para facilitar a organização e o acesso aos dados brutos, processados e logs. Todas as respostas das APIs agora são armazenadas em `raw/api_responses`.
 
 ---
 
@@ -81,41 +88,110 @@ A estrutura foi projetada para facilitar a organização e o acesso aos dados br
 
 ### **3.1. Criação de Tabelas no Banco de Dados**
 
-O script SQL `create_tables.sql` cria as seguintes tabelas no RDS:
+O script Python `create_tables.py` cria as seguintes tabelas no RDS com índices para otimizar consultas frequentes:
 
-- `guest_checks`
-- `taxes`
-- `detail_lines`
-- `menu_items`
+- `guest_checks`: Índice em `guest_check_id`.
+- `taxes`: Índice em `guest_check_id`.
+- `detail_lines`: Índice em `guest_check_id`.
+- `menu_items`: Índice em `menu_item_id`.
 
-Execute no **pgAdmin** ou qualquer ferramenta PostgreSQL.
+Cada tabela e índice foi projetado para atender às necessidades de performance do projeto e garantir integridade relacional.
 
----
+Execução:
+
+```bash
+python scripts/create_tables.py
+
+```
 
 ### **3.2. Ingestão de APIs (`api_fetch.py`)**
 
-Este script faz a requisição dos endpoints das APIs e armazena as respostas no S3. Exemplo:
+Este script realiza requisições para os endpoints configurados e salva as respostas no bucket S3, seguindo a estrutura organizada em `raw/api_responses`. 
+
+Alterações recentes:
+- Estrutura ajustada para salvar todas as respostas das APIs simuladas dentro de `raw/api_responses`.
+- Validação de erros e logs detalhados foram adicionados para rastreabilidade.
+
+Execução:
 
 ```bash
 python scripts/api_fetch.py
 ```
-
-Cada resposta é salva em uma pasta específica na estrutura `raw/api_responses`.
-
----
+--- 
 
 ### **3.3. ETL Process (`etl_process.py`)**
 
-O script `etl_process.py` lê os arquivos do S3, valida os dados contra schemas JSON e insere os registros no banco RDS.
+O script `etl_process.py` é responsável por processar os dados JSON armazenados no S3, validar suas estruturas e salvar as informações no banco de dados PostgreSQL (RDS). Ele realiza as seguintes etapas principais:
 
-Execução:
+1. **Leitura do S3**:
+   - Baixa os arquivos JSON armazenados na estrutura `raw/erp` e `raw/api_responses`.
+
+2. **Validação**:
+   - Cada registro é validado contra schemas JSON previamente definidos para garantir a integridade e consistência dos dados.
+
+3. **Inserção no banco**:
+   - Os registros são armazenados nas tabelas `guest_checks`, `taxes`, `detail_lines` e `menu_items`.
+
+4. **Logs detalhados**:
+   - Logs de erros e falhas de validação são armazenados no S3 em `logs/invalid_<tipo>.json`.
+   - Agora os logs incluem:
+     - **Timestamps**.
+     - **Campos inválidos específicos**.
+     - **Detalhes do erro**.
+
+### **Alterações Recentes**
+
+- **Campos Dinâmicos**: O pipeline foi ajustado para lidar automaticamente com mudanças nos nomes dos campos, como `taxes` para `taxation`.
+- **Melhorias de Logs**: Logs expandidos para incluir informações detalhadas de cada registro inválido.
+- **Mensagens de Sucesso**: Logs no console indicam progresso e completude.
+
+### **Execução**
+
+Para executar o script, utilize o comando:
 
 ```bash
 python scripts/etl_process.py
 ```
 
-Logs de validação são armazenados no S3 na pasta `logs`.
+#### Exemplo de Execução com Sucesso:
 
+```plaintext
+Arquivo raw/erp/ERP.json carregado do S3 com sucesso!
+Dados de guest_checks inseridos no banco.
+Dados de taxes inseridos no banco.
+Dados de detail_lines inseridos no banco.
+Dados de menu_items inseridos no banco.
+Processamento concluído!
+```
+
+#### Exemplo de Log de Erros:
+
+Os registros inválidos são armazenados no S3, por exemplo:
+
+- `logs/invalid_guest_checks.json`
+- `logs/invalid_taxes.json`
+- `logs/invalid_detail_lines.json`
+- `logs/invalid_menu_items.json`
+
+Exemplo de log:
+
+```json
+{
+    "timestamp": "2024-01-01T12:00:00Z",
+    "error": "Erro na validação do JSON",
+    "details": {
+        "schema": "guest_checks",
+        "errorField": "chkNum",
+        "expectedType": "integer",
+        "providedValue": "abc",
+        "context": {
+            "guestCheckId": 1122334455,
+            "opnBusDt": "2024-01-01",
+            "subTtl": 109.9
+        }
+    }
+}
+```
 ---
 
 ## 4. APIs Criadas
@@ -130,7 +206,9 @@ Os endpoints simulam a geração de dados para análise de receitas:
 - `/trans/getTransactions`
 - `/inv/getCashManagementDetails`
 
-Cada um retorna dados JSON que representam informações de restaurantes.
+Cada endpoint aceita um payload com `busDt` (data de operação) e `storeId` (identificador da loja), e retorna dados JSON que representam informações de restaurantes.
+
+Para mais detalhes, acesse [`API_DOCUMENTATION.md`](API_DOCUMENTATION.md).
 
 ---
 
@@ -138,7 +216,7 @@ Cada um retorna dados JSON que representam informações de restaurantes.
 
 ### 5.1. Esquema JSON
 
-Exemplo de schema de `ERP.json`:
+Exemplo de esquema de `ERP.json`:
 
 ```json
 {
@@ -149,28 +227,9 @@ Exemplo de schema de `ERP.json`:
             "guestCheckId": 1122334455,
             "chkNum": 1234,
             "opnBusDt": "2024-01-01",
-            "opnUTC": "2024-01-01T09:09:09",
-            "opnLcl": "2024-01-01T06:09:09",
             "clsdBusDt": "2024-01-01",
-            "clsdUTC": "2024-01-01T12:12:12",
-            "clsdLcl": "2024-01-01T09:12:12",
-            "lastTransUTC": "2024-01-01T12:12:12",
-            "lastTransLcl": "2024-01-01T09:12:12",
-            "lastUpdatedUTC": "2024-01-01T13:13:13",
-            "lastUpdatedLcl": "2024-01-01T10:13:13",
-            "clsdFlag": true,
-            "gstCnt": 1,
             "subTtl": 109.9,
-            "nonTxblSlsTtl": null,
             "chkTtl": 109.9,
-            "dscTtl": -10,
-            "payTtl": 109.9,
-            "balDueTtl": null,
-            "rvcNum": 101,
-            "otNum": 1,
-            "ocNum": null,
-            "tblNum": 1,
-            "tblName": "90",
             "empNum": 55555,
             "numSrvcRd": 3,
             "numChkPrntd": 2,
@@ -179,37 +238,20 @@ Exemplo de schema de `ERP.json`:
                     "taxNum": 28,
                     "txblSlsTtl": 119.9,
                     "taxCollTtl": 20.81,
-                    "taxRate": 21,
-                    "type": 3
+                    "taxRate": 21
                 }
             ],
             "detailLines": [
                 {
                     "guestCheckLineItemId": 9988776655,
-                    "rvcNum": 123,
-                    "dtlOtNum": 1,
-                    "dtlOcNum": null,
                     "lineNum": 1,
-                    "dtlId": 1,
                     "detailUTC": "2024-01-01T09:09:09",
-                    "detailLcl": "2024-01-01T06:09:09",
-                    "lastUpdateUTC": "2024-11-01T10:10:10",
-                    "lastUpdateLcl": "2024-01-01T07:10:10",
-                    "busDt": "2024-01-01",
-                    "wsNum": 7,
                     "dspTtl": 119.9,
                     "dspQty": 1,
-                    "aggTtl": 119.9,
-                    "aggQty": 1,
-                    "chkEmpId": 10454318,
-                    "chkEmpNum": 81001,
-                    "svcRndNum": 1,
-                    "seatNum": 1,
                     "menuItem": {
                         "miNum": 6042,
                         "modFlag": false,
-                        "inclTax": 20.809091,
-                        "activeTaxes": "28",
+                        "inclTax": 20.81,
                         "prcLvl": 3
                     }
                 }
@@ -218,39 +260,67 @@ Exemplo de schema de `ERP.json`:
     ]
 }
 ```
+
+---
+
 ### 5.2. Armazenamento de Respostas da API
 
-As respostas são salvas no S3 com a estrutura:
+As respostas das APIs simuladas são salvas no S3 na seguinte estrutura:
 
 ```plaintext
-raw/api_responses/{endpoint}/{data}/{storeId}.json
+raw/
+└── api_responses/
+    ├── getFiscalInvoice/
+    │   ├── 2024-01-01/
+    │   │   ├── store123.json
+    ├── getGuestChecks/
+    │   ├── 2024-01-01/
+    │   │   ├── store123.json
+    ├── getChargeBack/
+    │   ├── 2024-01-01/
+    │   │   ├── store123.json
+    ├── getTransactions/
+    │   ├── 2024-01-01/
+    │   │   ├── store123.json
+    └── getCashManagementDetails/
+        ├── 2024-01-01/
+        │   ├── store123.json
 ```
-### 5.3. Alterações em `guestChecks.taxes`
 
-O pipeline foi projetado para ser resiliente a mudanças no nome do campo. Ele identifica automaticamente se o campo é `taxes` ou `taxation`.
+A estrutura foi projetada para permitir um acesso organizado e rápido aos dados das APIs. Cada endpoint possui sua pasta específica e organiza as respostas por data de operação.
+
+Os dados processados posteriormente são movidos para a pasta `processed`, garantindo a separação clara entre dados brutos e transformados.
+
+### 6. Kanban
+
+Para acompanhar o progresso do projeto, consulte o arquivo `KANBAN.md`. O Kanban foi estruturado em três colunas principais:
+
+- **A Fazer**: Etapas planejadas, mas ainda não iniciadas.
+- **Em Progresso**: Tarefas em andamento.
+- **Concluído**: Atividades finalizadas.
+
+O controle visual das tarefas ajudou a organizar a entrega incremental e facilitou ajustes rápidos durante o desenvolvimento.
 
 ---
 
-## 6. Kanban
+### 7. Considerações Finais
 
-Veja o progresso completo em `KANBAN.md`. Todas as etapas foram documentadas.
+Este projeto foi desenvolvido utilizando as melhores práticas em Engenharia de Dados, com destaque para:
 
----
+1. **Flexibilidade**: 
+   - O pipeline é resiliente a mudanças nos esquemas JSON.
+   - Adaptação dinâmica para novos campos ou endpoints.
 
-## 7. Considerações Finais
+2. **Organização**:
+   - Estrutura clara no S3 para dados brutos, processados e logs.
+   - Validação rigorosa dos dados com logs detalhados.
 
-Este projeto demonstrou o uso de:
+3. **Automação**:
+   - Utilização de AWS API Gateway e Lambda para automação de ingestão de dados.
+   - Scripts modulares para criação de tabelas, ingestão de APIs e processamento ETL.
 
-1. **AWS Services**:
-   - **S3** para armazenamento de dados.
-   - **API Gateway** para endpoints.
-   - **Lambda** para automação de APIs.
+O projeto está preparado para futuras expansões, como a inclusão de novos endpoints, alterações nos requisitos de validação ou migração para arquiteturas mais escaláveis.
 
-2. **Python Scripts**:
-   - ETL robusto e validado.
-   - Estrutura modular e escalável.
+Para mais detalhes técnicos, consulte a documentação das [APIs](API_DOCUMENTATION.md) e os scripts no repositório.
 
-3. **PostgreSQL**:
-   - Banco de dados relacional para armazenar dados processados.
 
-Esta solução é flexível para adaptações futuras, como a adição de novos endpoints ou alterações no esquema JSON.

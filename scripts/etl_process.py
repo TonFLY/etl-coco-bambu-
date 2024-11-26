@@ -2,10 +2,13 @@ import boto3
 import psycopg2
 import json
 import os
+from datetime import datetime
 from dotenv import load_dotenv
 from jsonschema import validate, ValidationError
 
 # Carregar variáveis de ambiente do arquivo .env
+# Utilizamos dotenv para manter as credenciais e configurações fora do código fonte,
+# promovendo segurança e facilidade de manutenção.
 load_dotenv()
 BUCKET_NAME = os.getenv("BUCKET_NAME")
 RAW_FILE_PATH = os.getenv("RAW_FILE_PATH")
@@ -16,6 +19,8 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_PORT = os.getenv("DB_PORT")
 
 # Schemas para validação de JSON
+# Definimos esquemas JSON usando jsonschema para validar a estrutura dos dados.
+# Isso garante que apenas dados válidos sejam processados, reduzindo riscos de erros.
 schemas = {
     "guest_checks": {
         "type": "object",
@@ -69,6 +74,8 @@ schemas = {
 }
 
 # Função para conectar ao RDS
+# Justificativa: Conexões diretas ao banco são encapsuladas em uma função para
+# facilitar o reuso e centralizar o controle de erros.
 def connect_to_rds():
     try:
         conn = psycopg2.connect(
@@ -83,7 +90,28 @@ def connect_to_rds():
         print("Erro ao conectar ao RDS:", e)
         raise
 
+# Função para salvar logs detalhados no S3
+# Justificativa: Armazenar logs no S3 facilita auditorias e depuração, além de criar
+# um histórico persistente de eventos.
+def log_error_to_s3(s3_client, bucket_name, log_key, error_message, data=None):
+    log_entry = {
+        "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "error_message": error_message,
+        "data": data
+    }
+    try:
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=log_key,
+            Body=json.dumps(log_entry)
+        )
+        print(f"Log salvo no S3: {log_key}")
+    except Exception as e:
+        print(f"Erro ao salvar log no S3: {e}")
+
 # Função para validar o JSON
+# Justificativa: A validação de dados garante integridade e minimiza erros em etapas
+# subsequentes do pipeline.
 def validate_json(data, schema):
     try:
         validate(instance=data, schema=schema)
@@ -93,11 +121,13 @@ def validate_json(data, schema):
         return False
 
 # Função principal do ETL
+# Justificativa: Este método segue a abordagem de ETL (Extração, Transformação e Carga),
+# extraindo dados do S3, validando e carregando no RDS.
 def process_guest_check():
     s3 = boto3.client('s3')
 
     try:
-        # Baixar o arquivo JSON do S3
+        # Extração: Baixar o arquivo JSON do S3
         response = s3.get_object(Bucket=BUCKET_NAME, Key=RAW_FILE_PATH)
         data = json.loads(response['Body'].read())
         print(f"Arquivo {RAW_FILE_PATH} carregado do S3 com sucesso!")
@@ -106,14 +136,15 @@ def process_guest_check():
         conn = connect_to_rds()
         cursor = conn.cursor()
 
-        # Processar guest_checks
+        # Transformação e Carga: Processar guest_checks
         for guest_check in data["guestChecks"]:
             if not validate_json(guest_check, schemas["guest_checks"]):
-                print(f"Registro inválido no guest_checks: {guest_check}")
-                s3.put_object(
-                    Bucket=BUCKET_NAME,
-                    Key="logs/invalid_guest_checks.json",
-                    Body=json.dumps(guest_check)
+                log_error_to_s3(
+                    s3_client=s3,
+                    bucket_name=BUCKET_NAME,
+                    log_key="logs/invalid_guest_checks.json",
+                    error_message="Estrutura inválida no guest_checks.",
+                    data=guest_check
                 )
                 continue
 
@@ -136,21 +167,21 @@ def process_guest_check():
                 guest_check.get("numChkPrntd")
             ))
 
-            # Identificar campos possíveis para taxes (taxes ou taxation)
+            # Taxes: Suporte a nomes diferentes (e.g., taxes ou taxation)
             taxes_field = next(
                 (field for field in ["taxes", "taxation"] if field in guest_check), 
                 None
             )
 
-            # Processar taxes
             if taxes_field:
                 for tax in guest_check.get(taxes_field, []):
                     if not validate_json(tax, schemas["taxes"]):
-                        print(f"Registro inválido no taxes: {tax}")
-                        s3.put_object(
-                            Bucket=BUCKET_NAME,
-                            Key="logs/invalid_taxes.json",
-                            Body=json.dumps(tax)
+                        log_error_to_s3(
+                            s3_client=s3,
+                            bucket_name=BUCKET_NAME,
+                            log_key="logs/invalid_taxes.json",
+                            error_message="Estrutura inválida no taxes.",
+                            data=tax
                         )
                         continue
 
@@ -167,14 +198,15 @@ def process_guest_check():
                         tax.get("taxRate", 0)
                     ))
 
-            # Processar detailLines
+            # Detalhes e Itens do Menu
             for detail in guest_check.get("detailLines", []):
                 if not validate_json(detail, schemas["detail_lines"]):
-                    print(f"Registro inválido no detailLines: {detail}")
-                    s3.put_object(
-                        Bucket=BUCKET_NAME,
-                        Key="logs/invalid_detail_lines.json",
-                        Body=json.dumps(detail)
+                    log_error_to_s3(
+                        s3_client=s3,
+                        bucket_name=BUCKET_NAME,
+                        log_key="logs/invalid_detail_lines.json",
+                        error_message="Estrutura inválida no detailLines.",
+                        data=detail
                     )
                     continue
 
@@ -195,7 +227,7 @@ def process_guest_check():
                     detail.get("menuItem", {}).get("miNum") if detail.get("menuItem") else None
                 ))
 
-                # Processar menuItems
+                # Itens do Menu
                 menu_item = detail.get("menuItem", {})
                 if menu_item and validate_json(menu_item, schemas["menu_items"]):
                     cursor.execute("""
@@ -212,20 +244,26 @@ def process_guest_check():
                         menu_item.get("prcLvl", 0)
                     ))
                 elif menu_item:
-                    print(f"Registro inválido no menuItems: {menu_item}")
-                    s3.put_object(
-                        Bucket=BUCKET_NAME,
-                        Key="logs/invalid_menu_items.json",
-                        Body=json.dumps(menu_item)
+                    log_error_to_s3(
+                        s3_client=s3,
+                        bucket_name=BUCKET_NAME,
+                        log_key="logs/invalid_menu_items.json",
+                        error_message="Estrutura inválida no menuItems.",
+                        data=menu_item
                     )
 
         conn.commit()
         cursor.close()
         conn.close()
-        print("Processamento concluído!")
+        print("Processamento concluído com sucesso!")
     except Exception as e:
+        log_error_to_s3(
+            s3_client=s3,
+            bucket_name=BUCKET_NAME,
+            log_key="logs/general_errors.json",
+            error_message=f"Erro geral no processamento: {e}"
+        )
         print("Erro ao processar os dados:", e)
-        raise
 
 # Executar o ETL
 if __name__ == "__main__":

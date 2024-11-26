@@ -1,45 +1,52 @@
 import boto3
 import json
 
+# Cliente do S3 e nome do bucket
 s3 = boto3.client('s3')
 bucket_name = "coco-bambu-data-lake2"
 
 def create_s3_structure():
+    """
+    Cria a estrutura de pastas no bucket S3.
+    Justificativa: Organizar os dados em pastas `raw` e `processed` para facilitar a manipulação.
+    """
     folders = [
-        "raw/api1/",
-        "raw/api2/",
-        "raw/erp/",
-        "processed/api1/",
-        "processed/api2/",
-        "processed/erp/"
+        "raw/api_responses/",  # Pasta para respostas brutas das APIs
+        "raw/erp/",            # Pasta para dados ERP brutos
+        "processed/api_responses/",  # Pasta para dados processados das APIs
+        "processed/erp/"       # Pasta para dados ERP processados
     ]
     for folder in folders:
-        s3.put_object(Bucket=bucket_name, Key=(folder + "/"))
+        s3.put_object(Bucket=bucket_name, Key=(folder))
+    print("Estrutura de pastas criada no S3 com sucesso.")
 
 def upload_sample_files():
-    # Simulação para API 1 (Pedidos)
-    api1_data = {
-        "orderId": 12345,
+    """
+    Envia arquivos JSON de exemplo para o S3.
+    Justificativa: Fornecer exemplos iniciais para validar a estrutura e integração.
+    """
+    # Exemplo de resposta da API
+    api_response_data = {
+        "responseId": 1,
         "timestamp": "2024-01-01T12:00:00Z",
-        "items": [
-            {"itemId": 1, "quantity": 2, "price": 10.5},
-            {"itemId": 2, "quantity": 1, "price": 5.0}
-        ],
-        "total": 26.0
+        "data": [
+            {"key": "value1"},
+            {"key": "value2"}
+        ]
     }
-    s3.put_object(Bucket=bucket_name, Key="raw/api1/order1.json", Body=json.dumps(api1_data))
+    s3.put_object(Bucket=bucket_name, Key="raw/api_responses/example_response.json", Body=json.dumps(api_response_data))
 
-    # Simulação para API 2 (Feedbacks)
-    api2_data = {
-        "feedbackId": 54321,
+    # Exemplo de dados ERP
+    erp_data = {
+        "transactionId": 1001,
         "timestamp": "2024-01-01T15:00:00Z",
-        "customerId": 9876,
-        "rating": 4.5,
-        "comments": "Ótimo serviço!"
+        "amount": 150.0,
+        "details": "Example ERP data"
     }
-    s3.put_object(Bucket=bucket_name, Key="raw/api2/feedback1.json", Body=json.dumps(api2_data))
+    s3.put_object(Bucket=bucket_name, Key="raw/erp/example_erp.json", Body=json.dumps(erp_data))
+    print("Arquivos de exemplo enviados para o S3 com sucesso.")
 
 if __name__ == "__main__":
+    # Criação da estrutura e envio dos arquivos simulados
     create_s3_structure()
     upload_sample_files()
-    print("Estrutura e arquivos simulados criados no S3 com sucesso!")
